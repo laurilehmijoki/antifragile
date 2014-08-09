@@ -1,5 +1,7 @@
 package com.github.antifragile
 
+import com.github.antifragile.Unsafe.{ErrOrOk, ExceptionTranslator}
+
 import scala.util.{Try, Success, Failure}
 
 sealed trait ErrorReport[T] {
@@ -9,22 +11,29 @@ sealed trait ErrorReport[T] {
 
 case class InternalErrorWithException(report: String = "Internal error", internalReport: Option[Throwable]) extends ErrorReport[Throwable]
 
-object Unsafe {
-  type ErrOrOk[T] = Either[ErrorReport[_], T]
+sealed abstract class Unsafe[T, C] {
+  def operation: T
 
-  type ExceptionTranslator = PartialFunction[Throwable, Throwable]
+  private var recoveryPartial: PartialFunction[Throwable, Try[C]] = {
+    case _ if false => ??? // this partial function is never defined
+  }
 
-  def runUnsafe[T, C]
-    (unsafeOperation: => T, recoverWith: Option[PartialFunction[Throwable, Try[C]]] = None)
-    (implicit exceptionTranslator: ExceptionTranslator = noExceptionTranslation):
-    ErrOrOk[T] =
-    {
-      def tryOperation = Try(unsafeOperation)
-      val firstTry = tryOperation
-      recoverWith.fold(firstTry)(
-        partialRecovery => firstTry.recoverWith(partialRecovery).flatMap( _ => tryOperation )
-      )
-    } match {
+  private var exceptionTranslator: ExceptionTranslator = {
+    case _ if false => ??? // this partial function is never defined
+  }
+
+  def retryAfterRecoveringWith(op: PartialFunction[Throwable, Try[C]]) = {
+    recoveryPartial = op
+    this
+  }
+
+  def translateExceptionWith(op: ExceptionTranslator) = {
+    exceptionTranslator = op
+    this
+  }
+
+  def run: ErrOrOk[T] =
+    Try(operation) recoverWith recoveryPartial flatMap (_ => Try(operation)) match {
       case Success(resultFromUnsafe) =>
         Right(resultFromUnsafe)
 
@@ -34,8 +43,12 @@ object Unsafe {
       case Failure(unsafeError) =>
         Left(InternalErrorWithException(internalReport = Some(unsafeError)))
     }
+}
 
-  private val noExceptionTranslation: ExceptionTranslator = {
-    case e if false => ???
-  }
+object Unsafe {
+  def apply[T, C](op: => T): Unsafe[T, C] = new Unsafe[T, C] { def operation = op }
+
+  type ErrOrOk[T] = Either[ErrorReport[_], T]
+
+  type ExceptionTranslator = PartialFunction[Throwable, Throwable]
 }
