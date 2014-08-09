@@ -2,47 +2,41 @@ package com.github.antifragile
 
 import com.amazonaws.services.s3.model.AmazonS3Exception
 import com.github.antifragile.Unsafe._
-import org.specs2.matcher.MatchResult
 import org.specs2.mutable._
+import org.specs2.specification.Scope
 
 import scala.util.Try
 
 class AntiFragileSpec extends Specification {
 
-  "runUnsafe" should {
-    "run the recoverWith operation if the unsafe operation fails" in {
-      var recoverWithRan = 0
-      runUnsafe({ throw new RuntimeException }, recoverWith = Some({
-        case e: RuntimeException => recoverWithRan += 1; Try(())
-      }: PartialFunction[Throwable, Try[Unit]]))
-      recoverWithRan must beEqualTo(1)
+  "Unsafe" should {
+    "retry after recovering from an exception" in new EmptyS3Bucket {
+      val unsafe = Unsafe { uploadToNonExistentS3Bucket } retryAfterRecoveringWith {
+        case e: RuntimeException => Try(createS3Bucket)
+      }
+      unsafe.run
+      bucket.exists must beTrue
     }
 
-    "run the unsafe operation again after running the recoverWith operation" in {
-      var unsafeRan = 0
-      runUnsafe({ unsafeRan += 1; throw new RuntimeException }, recoverWith = Some({
-        case e: RuntimeException => Try(())
-      }: PartialFunction[Throwable, Try[Unit]]))
-      unsafeRan must beEqualTo(2)
+    "run the operation and wrap the successful result in Right" in {
+      Unsafe(Unit).run must beEqualTo(Right(Unit))
     }
 
-    "return the value produced by the second unsafe call, if the first unsafe call failed" in {
-      var unsafeCallCount = 0
-      runUnsafe({
-        unsafeCallCount += 1
-        if (unsafeCallCount == 1) throw new RuntimeException
-        else unsafeCallCount
-      }, recoverWith = Some({
-        case e: RuntimeException => Try(())
-      }: PartialFunction[Throwable, Try[Unit]])) must equalTo(Right(2))
+    "run the operation and wrap the failure in Left" in {
+      Unsafe(throw new AmazonS3Exception("S3 failed")).run must haveClass[Left[ErrorReport[_], _]]
     }
 
     "translate the exception if the user provides a translator" in {
-      runUnsafe(uploadToS3)(awsUnauthorizedTranslator) must beLike ({
+      val unsafe = Unsafe(unauthorizedS3Upload) translateExceptionWith awsUnauthorizedTranslator
+      unsafe.run must beLike {
         case Left(InternalErrorWithException(_, Some(e: InsufficientPermissions))) =>
           e.hint must startWith("Login to the Amazon AWS console")
-      }: PartialFunction[Either[_, _], MatchResult[_]])
+      }
     }
+  }
+
+  trait EmptyS3Bucket extends Scope {
+    implicit val bucket: S3Bucket = S3Bucket()
   }
 
   class InsufficientPermissions(val originalMessage: String, val hint: String) extends Exception
@@ -52,12 +46,29 @@ class AntiFragileSpec extends Specification {
       new InsufficientPermissions(e.getMessage, "Login to the Amazon AWS console and add the user to the group 's3-users'")
   }
 
-  def uploadToS3 = throw s3UnauthorizedException
+  def createS3Bucket(implicit bucket: S3Bucket) = bucket.exists = true
+
+  def uploadToExistingS3Bucket = Unit
+
+  def uploadToNonExistentS3Bucket(implicit bucket: S3Bucket) =
+    if (bucket.exists) ()
+    else throw noSuchS3Bucket
+
+  def unauthorizedS3Upload = throw s3UnauthorizedException
   
   val s3UnauthorizedException = {
     val e = new AmazonS3Exception("Insufficient permissions")
     e.setErrorCode("AccountProblem") // http://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html
     e.setStatusCode(403)
+    e
+  }
+
+  case class S3Bucket(var exists: Boolean = false)
+
+  val noSuchS3Bucket = {
+    val e = new AmazonS3Exception("Bucket does not exist")
+    e.setErrorCode("NoSuchBucket") // http://docs.aws.amazon.com/AmazonS3/latest/API/ErrorResponses.html
+    e.setStatusCode(404)
     e
   }
 }
