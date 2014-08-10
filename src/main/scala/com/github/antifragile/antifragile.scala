@@ -2,6 +2,7 @@ package com.github.antifragile
 
 import com.github.antifragile.Unsafe.{ErrOrOk, ExceptionTranslator}
 
+import scala.concurrent.Future
 import scala.util.{Try, Success, Failure}
 
 sealed trait ErrorReport[T] {
@@ -51,4 +52,9 @@ object Unsafe {
   type ErrOrOk[T] = Either[ErrorReport[_], T]
 
   type ExceptionTranslator = PartialFunction[Throwable, Throwable]
+
+  def runUnsafeFuture[T](unsafeOperation: => Future[T])(implicit executionContext: : Future[ErrOrOk[T]] =
+    unsafeOperation map (Right(_)) recover {
+      case e: Throwable => Left(InternalErrorWithException(internalReport = Some(e)))
+    }
 }
