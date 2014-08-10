@@ -2,7 +2,7 @@ name := "antifragile"
 
 version := "1.0"
 
-scalaVersion := "2.11.2"
+scalaVersion := "2.10.4"
 
 crossScalaVersions := Seq("2.11.2", "2.10.4")
 
