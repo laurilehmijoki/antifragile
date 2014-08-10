@@ -32,7 +32,7 @@ sealed abstract class Unsafe[T, C] {
     case _ if false => ??? // this partial function is never defined
   }
 
-  private var exceptionTranslator: ExceptionTranslator = {
+  private var exceptionTranslator: ExceptionTranslator[T] = {
     case _ if false => ??? // this partial function is never defined
   }
 
@@ -41,7 +41,7 @@ sealed abstract class Unsafe[T, C] {
     this
   }
 
-  def translateExceptionWith(op: ExceptionTranslator) = {
+  def translateExceptionWith(op: ExceptionTranslator[T]) = {
     exceptionTranslator = op
     this
   }
@@ -52,7 +52,7 @@ sealed abstract class Unsafe[T, C] {
         Right(resultFromUnsafe)
 
       case Failure(unsafeError) if exceptionTranslator isDefinedAt unsafeError =>
-        Left(InternalErrorWithException(internalReport = Some(exceptionTranslator apply unsafeError)))
+        exceptionTranslator apply unsafeError
 
       case Failure(unsafeError) =>
         Left(InternalErrorWithException(internalReport = Some(unsafeError)))
@@ -64,7 +64,7 @@ object Unsafe {
 
   type ErrOrOk[T] = Either[ErrorReport[_], T]
 
-  type ExceptionTranslator = PartialFunction[Throwable, Throwable]
+  type ExceptionTranslator[T] = PartialFunction[Throwable, ErrOrOk[T]]
 
   def runUnsafeFuture[T](unsafeOperation: => Future[T])(implicit executionContext: ExecutionContextExecutor): Future[ErrOrOk[T]] =
     unsafeOperation map (Right(_)) recover {

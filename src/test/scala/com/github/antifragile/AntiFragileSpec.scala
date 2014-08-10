@@ -29,8 +29,8 @@ class AntiFragileSpec extends Specification {
     "translate the exception if the user provides a translator" in {
       val unsafe = Unsafe(unauthorizedS3Upload) translateExceptionWith awsUnauthorizedTranslator
       unsafe.run must beLike {
-        case Left(InternalErrorWithException(_, Some(e: InsufficientPermissions))) =>
-          e.hint must startWith("Login to the Amazon AWS console")
+        case Left(InternalError(_, Some(hint))) =>
+          hint must startWith("Login to the Amazon AWS console")
       }
     }
   }
@@ -41,9 +41,9 @@ class AntiFragileSpec extends Specification {
 
   class InsufficientPermissions(val originalMessage: String, val hint: String) extends Exception
 
-  val awsUnauthorizedTranslator: ExceptionTranslator = {
+  val awsUnauthorizedTranslator: ExceptionTranslator[_] = {
     case e: AmazonS3Exception if e.getStatusCode == 403 =>
-      new InsufficientPermissions(e.getMessage, "Login to the Amazon AWS console and add the user to the group 's3-users'")
+      Left(InternalError(internalReport = Some("Login to the Amazon AWS console and add the user to the group 's3-users'")))
   }
 
   def createS3Bucket(implicit bucket: S3Bucket) = bucket.exists = true
