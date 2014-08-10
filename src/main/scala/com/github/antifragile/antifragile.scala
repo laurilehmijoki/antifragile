@@ -10,7 +10,20 @@ sealed trait ErrorReport[T] {
   def internalReport: Option[T]
 }
 
+case class UserError(report: String, internalReport: Option[String] = None) extends ErrorReport[String]
+case class InternalError(report: String = "Internal error", internalReport: Option[String]) extends ErrorReport[String]
 case class InternalErrorWithException(report: String = "Internal error", internalReport: Option[Throwable]) extends ErrorReport[Throwable]
+
+case class MultipleErrors(errors: Seq[ErrorReport[_]]) extends ErrorReport[String] {
+  def report = errors.map(_.report).mkString(" | ")
+
+  def internalReport: Option[String] = {
+    val errs = errors.collect {
+      case e if e.internalReport.isDefined => e.internalReport.get
+    }
+    Some(s"Multiple errors:\n$errs")
+  }
+}
 
 sealed abstract class Unsafe[T, C] {
   def operation: T
