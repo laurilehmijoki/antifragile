@@ -1,6 +1,6 @@
 package com.github.antifragile
 
-import com.github.antifragile.Unsafe.{ErrOrOk, ExceptionTranslator}
+import com.github.antifragile.Unsafe._
 
 import scala.concurrent.{ExecutionContextExecutor, Future}
 import scala.util.{Try, Success, Failure}
@@ -25,26 +25,15 @@ case class MultipleErrors(errors: Seq[ErrorReport[_]]) extends ErrorReport[Strin
   }
 }
 
-sealed abstract class Unsafe[T, C] {
-  def operation: T
+sealed class Unsafe[T, C](
+                           operation: => T,
+                           recoveryPartial: PartialRecovery[C] = undefinedPartialRecovery,
+                           exceptionTranslator: ExceptionTranslator[T] = undefinedExceptionTranslator
+                           ) {
 
-  private var recoveryPartial: PartialFunction[Throwable, Try[C]] = {
-    case _ if false => ??? // this partial function is never defined
-  }
+  def retryAfterRecoveringWith(op: PartialFunction[Throwable, Try[C]]) = new Unsafe(operation, recoveryPartial = op)
 
-  private var exceptionTranslator: ExceptionTranslator[T] = {
-    case _ if false => ??? // this partial function is never defined
-  }
-
-  def retryAfterRecoveringWith(op: PartialFunction[Throwable, Try[C]]) = {
-    recoveryPartial = op
-    this
-  }
-
-  def translateExceptionWith(op: ExceptionTranslator[T]) = {
-    exceptionTranslator = op
-    this
-  }
+  def translateExceptionWith(op: ExceptionTranslator[T]) = new Unsafe(operation, exceptionTranslator = op)
 
   def run: ErrOrOk[T] =
     Try(operation) recoverWith recoveryPartial flatMap (_ => Try(operation)) match {
@@ -60,11 +49,21 @@ sealed abstract class Unsafe[T, C] {
 }
 
 object Unsafe {
-  def apply[T, C](op: => T): Unsafe[T, C] = new Unsafe[T, C] { def operation = op }
+  def apply[T, C](op: => T): Unsafe[T, C] = new Unsafe[T, C](op)
 
   type ErrOrOk[T] = Either[ErrorReport[_], T]
 
+  private type PartialRecovery[C] = PartialFunction[Throwable, Try[C]]
+
   type ExceptionTranslator[T] = PartialFunction[Throwable, ErrOrOk[T]]
+
+  private[antifragile] def undefinedPartialRecovery[T]: PartialRecovery[T] = {
+    case _ if false => ???
+  }
+
+  private[antifragile] def undefinedExceptionTranslator[T]: ExceptionTranslator[T] = {
+    case _ if false => ???
+  }
 
   def runUnsafeFuture[T](unsafeOperation: => Future[T])(implicit executionContext: ExecutionContextExecutor): Future[ErrOrOk[T]] =
     unsafeOperation map (Right(_)) recover {
