@@ -31,9 +31,9 @@ sealed class Unsafe[T, C](
                            exceptionTranslator: ExceptionTranslator[T] = undefinedExceptionTranslator
                            ) {
 
-  def retryAfterRecoveringWith(op: PartialFunction[Throwable, Try[C]]) = new Unsafe(operation, recoveryPartial = op)
+  def retryAfterRecoveringWith(op: PartialFunction[Throwable, Try[C]]) = new Unsafe(operation, recoveryPartial = op, exceptionTranslator)
 
-  def translateExceptionWith(op: ExceptionTranslator[T]) = new Unsafe(operation, exceptionTranslator = op)
+  def translateExceptionWith(op: ExceptionTranslator[T]) = new Unsafe(operation, recoveryPartial, exceptionTranslator = op)
 
   def run: ErrOrOk[T] =
     Try(operation) recoverWith recoveryPartial flatMap (_ => Try(operation)) match {
