@@ -35,8 +35,14 @@ sealed class Unsafe[T, C](
 
   def translateExceptionWith(op: ExceptionTranslator[T]) = new Unsafe(operation, recoveryPartial, exceptionTranslator = op)
 
-  def run: ErrOrOk[T] =
-    Try(operation) recoverWith recoveryPartial flatMap (_ => Try(operation)) match {
+  def run: ErrOrOk[T] = {
+    val firstTry = Try(operation)
+    val retryApplied = firstTry recoverWith {
+      case e: Throwable if recoveryPartial isDefinedAt e =>
+        recoveryPartial apply e
+        Try(operation)
+    }
+    retryApplied match {
       case Success(resultFromUnsafe) =>
         Right(resultFromUnsafe)
 
@@ -46,6 +52,7 @@ sealed class Unsafe[T, C](
       case Failure(unsafeError) =>
         Left(InternalErrorWithException(internalReport = Some(unsafeError)))
     }
+  }
 }
 
 object Unsafe {

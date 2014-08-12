@@ -18,6 +18,12 @@ class AntiFragileSpec extends Specification {
       bucket.exists must beTrue
     }
 
+    "it runs the operation only once, the retry is not defined" in {
+      var runCount = 0
+      val unsafe = Unsafe(runCount += 1).run
+      runCount must beEqualTo(1)
+    }
+
     "run the operation and wrap the successful result in Right" in {
       Unsafe(Unit).run must beEqualTo(Right(Unit))
     }
